@@ -66,6 +66,27 @@ def divide_to_chunks(path, num):
         temp = df[i * num:(i + 1) * num]
         temp.to_csv(f'data/unlabeled/exploration_data_{i * num}-{(i + 1) * num - 1}.csv',encoding="utf-8-sig")
 
+def read_raw_data(path):
+    with open(path,'rb') as f:
+        x = pickle.load(f)
+    return x
+def give_time(samples):
+    import datetime
+    for sample in samples:
+        time_ = datetime.datetime.fromtimestamp(sample['data']['created_utc']).strftime('%Y-%m-%d')
+        print(time_)
 
 #extract_from_reddit()
 #divide_to_chunks('data/unlabeled/exploration_data.csv', 25)
+# x = read_raw_data('data/raw/raw_output.pickle')
+# give_time(x)
+# print(len(x))
+# c = 5
+# x = pd.read_csv(f"data/unlabeled/full_data.csv",index_col=0)
+# c = 5
+# file_50_to_74 = x[50:75][['post_text']]
+# file_50_to_74.to_excel("data/to_be_labeled/exploration_data_50-74.xlsx")
+# file_75_to_99 = x[75:100][['post_text']]
+# file_75_to_99.to_excel("data/to_be_labeled/exploration_data_75-99.xlsx")
+# file_100_to_370 = x[100:370][['post_text']]
+# file_100_to_370.to_excel("data/to_be_labeled/data_100-369.xlsx")
