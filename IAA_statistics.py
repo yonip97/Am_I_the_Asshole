@@ -114,11 +114,11 @@ def get_stats(path,classes):
                 individual_results[(annotator_1,annotator_2)] = {}
             pair_data = full_data[[annotator_1,annotator_2]].set_axis([0,1],axis=1,copy=False)
             pair_data = pair_data.dropna().astype('int')
-            bennet_s = metric_bennet_s.calculate(pair_data)
-            scott_pi = metric_scott_pi.calculate(pair_data)
-            cohen_kappa = metric_cohen_kappa.calculate(pair_data)
-            pearson_correlation = pearsonr(pair_data[0], pair_data[1])[0]
-            kendalltau_correlation = kendalltau(pair_data[0], pair_data[1])[0]
+            bennet_s = round(metric_bennet_s.calculate(pair_data),4)
+            scott_pi = round(metric_scott_pi.calculate(pair_data),4)
+            cohen_kappa = round(metric_cohen_kappa.calculate(pair_data),4)
+            pearson_correlation = round(pearsonr(pair_data[0], pair_data[1])[0],4)
+            kendalltau_correlation = round(kendalltau(pair_data[0], pair_data[1])[0],4)
             individual_results[(annotator_1,annotator_2)]['bennet_S'] = bennet_s
             individual_results[(annotator_1, annotator_2)]['scott_pi'] = scott_pi
             individual_results[(annotator_1, annotator_2)]['cohen_kappa'] = cohen_kappa
@@ -148,7 +148,7 @@ def get_stats(path,classes):
                 else:
                     if (annotator_1, annotator_2,annotator_3) not in individual_results.keys():
                         individual_results[(annotator_1, annotator_2,annotator_3)] = {}
-                    feliss_kappa = metric_feliss_kappa.calculate(three_data)
+                    feliss_kappa = round(metric_feliss_kappa.calculate(three_data),4)
                     individual_results[(annotator_1, annotator_2, annotator_3)]['feliss_kappa'] = feliss_kappa
                     threewise_feliss_kappa.append(feliss_kappa)
     results_dict['mean_felis_kappa'] = np.mean(threewise_feliss_kappa)
