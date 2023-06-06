@@ -1,7 +1,7 @@
 from os import listdir
 from os.path import isfile, join
 import pandas as pd
-from IAA_statistics import merge_results
+from IAA_statistics import merge_annotation_results
 import numpy as np
 import pickle
 
