@@ -1,6 +1,6 @@
 from functools import reduce
 import pandas as pd
-
+from scipy.stats import pearsonr,kendalltau
 
 
 def merge_annotation_results(annotators_data):
@@ -18,3 +18,8 @@ def merge_annotation_results(annotators_data):
     df_merged = reduce(lambda left, right: pd.merge(left, right,left_index=True, right_index=True,how='outer'), annotators_data_new)
     return df_merged
 
+
+def check_correlation(a, b):
+    p = pearsonr(a,b)[0]
+    k = kendalltau(a,b)[0]
+    return p,k
