@@ -23,7 +23,7 @@ def isNaN(num):
     return num != num
 
 
-def temp(path):
+def create_data(path):
     onlyfiles = [join(path, f) for f in listdir(path) if (isfile(join(path, f)) and 'xlsx' in f)]
     files_series = [pd.read_excel(f, index_col=0).reset_index(drop=True) for f in onlyfiles]
     annotation_data = merge_annotation_results(files_series)
@@ -89,7 +89,6 @@ def words_importance(col, data):
     words_importance_list = sorted(words_importance_list, reverse=True, key=lambda x: x[1])
     words_appearance_list = [(k, len(v)) for k, v in words_importance_dict.items()]
     words_appearance_list = sorted(words_appearance_list, reverse=True, key=lambda x: x[1])
-    c = 4
 
 
 def mean_score_distribution(full_data):
@@ -147,7 +146,7 @@ def diff_each_pair(row):
     return np.mean(diff)
 
 def main():
-    full_data, annotators_names = temp('data/labeled/full_annotation_team_1')
+    full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
     full_data['mean_score'] = full_data[annotators_names].mean(skipna=True, axis=1)
     full_data['text_length'] = full_data['selftext'].apply(lambda x: len(x))
     full_data['mean_disagreement'] = full_data[annotators_names].apply(diff_each_pair,axis=1)
@@ -158,7 +157,6 @@ def main():
     # mean_score_distribution(full_data)
     # single_annotation_histogram(full_data)
     # pair_difference_histogram(full_data,annotators_names)
-    # full_data.to_excel('full_data_all_features.xlsx')
 
 
 if __name__ == "__main__":
