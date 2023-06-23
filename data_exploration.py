@@ -1,14 +1,8 @@
 import string
-from os import listdir
-from os.path import isfile, join
 
 import numpy as np
 import pandas as pd
 from utils import merge_annotation_results, check_correlation,create_data
-import json
-import pickle
-import math
-from collections import Counter
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 import matplotlib.pyplot as plt
