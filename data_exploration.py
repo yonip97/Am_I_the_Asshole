@@ -21,7 +21,6 @@ def words_importance(col, data):
         sentence = sentence.translate(str.maketrans('', '', string.punctuation)).lower()
         words = sentence.split()
         for word in words:
-
             if word in stopwords.words('english'):
                 continue
             word = lemmatizer.lemmatize(word)

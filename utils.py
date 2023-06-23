@@ -53,15 +53,8 @@ def create_data(path):
             x = Counter(attriubte)
             if x.most_common(1)[0][1] > 0.9 * len(attriubte):
                 count += 1
-            else:
-                print(k)
-            # else:
-            #     print(k)
         except:
             pass
-            # print("Cant hash see later")
-            # print(k)
-    print(count)
     for sample in full_raw_data:
         for key in relevant_attributes:
             relevant_attributes[key].append(sample[key])
