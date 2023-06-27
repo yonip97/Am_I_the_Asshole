@@ -8,7 +8,11 @@ import pickle
 from collections import Counter
 
 def merge_annotation_results(annotators_data):
-    annotators_data_new = []
+    # texts = [annotators_data[i][['example_id','text']] for i in range(len(annotators_data))]
+    # texts = pd.concat(texts).drop_duplicates().sort_values('example_id').reset_index(drop = True)
+    # texts = texts.drop(index=[96]).reset_index(drop =True)
+    # texts.index = texts['example_id']
+    # texts = texts.drop(columns=['example_id'])
     if 'example_id' not in annotators_data[0].columns:
         for i in range(len(annotators_data)):
             annotators_data[i]['example_id'] = annotators_data[i].index
@@ -18,8 +22,8 @@ def merge_annotation_results(annotators_data):
         annotator = annotators_data[i]['annotator_id'].iloc[0]
         annotators_data[i] = annotators_data[i].rename(columns={'label':annotator})
         annotators_data[i] = annotators_data[i][[annotator]]
-        annotators_data_new.append(annotators_data[i] )
-    df_merged = reduce(lambda left, right: pd.merge(left, right,left_index=True, right_index=True,how='outer'), annotators_data_new)
+    df_merged = reduce(lambda left, right: pd.merge(left, right,left_index=True, right_index=True,how='outer'), annotators_data)
+    #df_merged = df_merged.join(texts)
     return df_merged
 
 

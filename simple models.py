@@ -1,4 +1,8 @@
-from utils import create_data
+import math
+
+import pandas as pd
+
+from utils import create_data, isNaN
 
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
@@ -8,6 +12,8 @@ from nltk import word_tokenize
 from nltk.stem import WordNetLemmatizer
 from sklearn.feature_extraction.text import CountVectorizer
 import numpy as np
+from sklearn.model_selection import train_test_split
+
 
 class LemmaTokenizer(object):
     def __init__(self):
@@ -15,28 +21,150 @@ class LemmaTokenizer(object):
 
     def __call__(self, articles):
         return [self.wnl.lemmatize(t) for t in word_tokenize(articles)]
-def bag_of_words(data):
-    tf_vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(),
-                                    strip_accents='unicode',
-                                    stop_words='english',
-                                    lowercase=True)
-    vectors = np.array(tf_vectorizer.fit_transform(data.tolist()).todense())
-    return vectors
-def distribution_per_row(row,classes):
+
+
+def distribution_per_row(row, classes):
     row = row.dropna()
     distribution = np.zeros(classes)
     for entry in row:
         entry = int(entry)
-        distribution[entry-1] += 1/len(row)
+        distribution[entry - 1] += 1 / len(row)
     return distribution
-def transform_to_distribution(data,classes):
-    return data.apply(lambda x:distribution_per_row(x,classes),axis = 1).tolist()
+
+
+def transform_to_distribution(data, classes):
+    labels = data.apply(lambda x: distribution_per_row(x, classes), axis=1).tolist()
+    labels = [x.reshape(1, -1) for x in labels]
+    return np.concatenate(labels)
+
+
+def cross_entropy(array_one, array_two):
+    eps = 1e-8
+    entropy = 0
+    for x, y in zip(array_one, array_two):
+        for entry_x, entry_y in zip(x, y):
+            entropy -= entry_x * math.log(entry_y + eps)
+    return entropy / len(array_one)
+
+
+class Softlabel_crossentropy():
+    def __init__(self, classes, iterations, learning_rate=0.01, regularization=1, thres=1e-3,
+                 print_each_x_iterations=100):
+        """
+        :param classes: number of classes in the distribution
+        :param iterations: number of epochs for sgd
+        :param learning_rate: learning rate of sgd
+        :param regularization: L2 regularization coefficent
+        :param thres: threshold to stop in SGD if L1 norm of the gradient is lower than that, the fit stops
+        :param print_each_x_iterations: prints cross entropy each x iterations, if -1 does not print
+        """
+        self.iterations = iterations
+        self.learning_rate = learning_rate
+        self.regularization = regularization
+        self.thres = thres
+        self.classes = classes
+        self.params = None
+        self.tf_vectorizer = CountVectorizer(tokenizer=LemmaTokenizer(),
+                                             strip_accents='unicode',
+                                             stop_words='english',
+                                             lowercase=True)
+        self.print_each_x_iterations = print_each_x_iterations
+
+    def _softmax(self, logits):
+        exp_logits = np.exp(logits)
+        return exp_logits / np.sum(exp_logits, axis=1, keepdims=True)
+
+    def fit_text(self, X):
+        self.tf_vectorizer.fit(X)
+
+    def transform_text(self, X):
+        X = np.array(self.tf_vectorizer.transform(X).todense())
+        X = np.c_[np.ones((len(X), 1)), X]
+        return X
+
+    def transform_labels(self, y):
+        return transform_to_distribution(y, classes=self.classes)
+
+    def fit(self, X, y):
+        self.fit_text(X)
+        X = self.transform_text(X)
+        self.params = np.random.randn(self.classes, X.shape[1])
+        y = self.transform_labels(y)
+        for iter in range(self.iterations):
+            Z = -X @ self.params.T
+            prob_y = self._softmax(Z)
+            error = y - prob_y
+            dW = 1 / X.shape[0] * (error.T @ X) + 2 * self.regularization * self.params
+            self.params -= self.learning_rate * dW
+            if np.abs(dW).max() < self.thres: break
+            if self.print_each_x_iterations != -1 and iter % self.print_each_x_iterations == 0:
+                print(cross_entropy(y, prob_y))
+
+    def predict(self, X):
+        new_X = self.transform_text(X)
+        Z = -new_X @ self.params.T
+        prob_y = self._softmax(Z)
+        return prob_y
+
+    def calculate_cross_entropy(self, real, pred):
+        real = self.transform_labels(real)
+        return cross_entropy(real, pred)
+
+
+class Dominating_class():
+    def __init__(self, classes, **kwargs):
+        self.full_class = np.zeros(classes)
+        self.classes = classes
+
+    def transform_labels(self, y):
+        return transform_to_distribution(y, classes=self.classes)
+
+    def fit(self, X, y):
+        dominant = None
+        dominant_count = 0
+        unique_elements, element_counts = np.unique(y.to_numpy(), return_counts=True)
+        for label, count in zip(unique_elements, element_counts):
+            if isNaN(label):
+                continue
+            if dominant_count < count:
+                dominant_count = count
+                dominant = label
+        dominant = int(dominant)
+        self.full_class[dominant - 1] = 1
+
+    def predict(self, X):
+        predictions = [self.full_class for i in range(len(X))]
+        return np.stack(predictions)
+
+    def calculate_cross_entropy(self, labels, predictions):
+        labels = self.transform_labels(labels)
+        return cross_entropy(labels, predictions)
 
 
 def main():
     full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
-    features = bag_of_words(full_data['selftext'])
-    labels = transform_to_distribution(full_data[annotators_names],classes = 5)
+    text = full_data['selftext']
+    labels = full_data[annotators_names]
+    classes = 5
+    test_size = 0.25
+    random_state = 42
+    iterations = 5000
+    lr = 5e-4
+    print_each_x_iterations = -1
+    regularization = 1
+    thres = 1e-3
+    X_train, X_test, y_train, y_test = train_test_split(text, labels, test_size=test_size, random_state=random_state)
+    basic_model = Dominating_class(classes=classes)
+    basic_model.fit(X_train, y_train)
+    predictions = basic_model.predict(X_test)
+    print(basic_model.calculate_cross_entropy(y_test, predictions))
+    basic_model_2 = Softlabel_crossentropy(classes=classes, iterations=iterations, learning_rate=lr,
+                                           regularization=regularization, thres=thres,
+                                           print_each_x_iterations=print_each_x_iterations)
+    basic_model_2.fit(X_train, y_train)
+    y_pred = basic_model_2.predict(X_test)
+    print(basic_model_2.calculate_cross_entropy(y_test, y_pred))
+
 
 if __name__ == '__main__':
     main()
