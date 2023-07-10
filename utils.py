@@ -5,6 +5,7 @@ from os import listdir
 from os.path import isfile, join
 import numpy as np
 import pickle
+import math
 from collections import Counter
 
 def merge_annotation_results(annotators_data):
@@ -72,3 +73,21 @@ def create_data(path):
     # full_data = annotation_data.join(full_data_no_annotation,on='example_id')
     return full_data, annotators_names
 
+def cross_entropy(pred, real):
+    eps = 1e-8
+    entropy = 0
+    for x, y in zip(pred, real):
+        for entry_x, entry_y in zip(x, y):
+            entropy -= entry_x * math.log(entry_y + eps)
+    return entropy / len(pred)
+def preprocess(data, dropna_thres=4):
+    data = data.replace('None', np.NAN)
+    data = data.dropna(thresh=dropna_thres)
+    return data
+
+def distribution_per_row(row):
+    row = row.dropna()
+    distribution = np.zeros(5)
+    for entry in row:
+        distribution[int(entry) - 1] += 1 / len(row)
+    return distribution

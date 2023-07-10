@@ -10,10 +10,10 @@ import string
 from tqdm import tqdm
 from nltk import word_tokenize
 from nltk.stem import WordNetLemmatizer
-from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer,TfidfVectorizer
 import numpy as np
-from sklearn.model_selection import train_test_split
-
+from sklearn.model_selection import train_test_split,KFold
+import optuna
 
 class LemmaTokenizer(object):
     def __init__(self):
@@ -24,7 +24,7 @@ class LemmaTokenizer(object):
 
 
 def distribution_per_row(row, classes):
-    row = row.dropna()
+    row = row[~np.isnan(row)]
     distribution = np.zeros(classes)
     for entry in row:
         entry = int(entry)
@@ -33,8 +33,9 @@ def distribution_per_row(row, classes):
 
 
 def transform_to_distribution(data, classes):
-    labels = data.apply(lambda x: distribution_per_row(x, classes), axis=1).tolist()
-    labels = [x.reshape(1, -1) for x in labels]
+    labels = [distribution_per_row(x, classes).reshape(1, -1) for x in data]
+    # labels = data.apply(lambda x: distribution_per_row(x, classes), axis=1).tolist()
+    # labels = [x.reshape(1, -1) for x in labels]
     return np.concatenate(labels)
 
 
@@ -90,7 +91,7 @@ class Softlabel_crossentropy():
         X = self.transform_text(X)
         self.params = np.random.randn(self.classes, X.shape[1])
         y = self.transform_labels(y)
-        for iter in range(self.iterations):
+        for iter in tqdm(range(self.iterations)):
             Z = -X @ self.params.T
             prob_y = self._softmax(Z)
             error = y - prob_y
@@ -111,6 +112,28 @@ class Softlabel_crossentropy():
         return cross_entropy(real, pred)
 
 
+class Train_distribution():
+    def __init__(self, classes=5):
+        self.train_distribution = None
+        self.classes = classes
+
+    def transform_labels(self, y):
+        return transform_to_distribution(y, classes=self.classes)
+
+    def fit(self, X, y):
+        unique_elements, element_counts = np.unique(y, return_counts=True)
+        dis = element_counts[:-1] / sum(element_counts[:-1])
+        self.train_distribution = dis
+
+    def predict(self, X):
+        predictions = [self.train_distribution for i in range(len(X))]
+        return np.stack(predictions)
+
+    def calculate_cross_entropy(self, labels, predictions):
+        labels = self.transform_labels(labels)
+        return cross_entropy(labels, predictions)
+
+
 class Dominating_class():
     def __init__(self, classes, **kwargs):
         self.full_class = np.zeros(classes)
@@ -122,7 +145,7 @@ class Dominating_class():
     def fit(self, X, y):
         dominant = None
         dominant_count = 0
-        unique_elements, element_counts = np.unique(y.to_numpy(), return_counts=True)
+        unique_elements, element_counts = np.unique(y, return_counts=True)
         for label, count in zip(unique_elements, element_counts):
             if isNaN(label):
                 continue
@@ -130,7 +153,7 @@ class Dominating_class():
                 dominant_count = count
                 dominant = label
         dominant = int(dominant)
-        self.full_class[dominant - 1] = 1
+        self.full_class[dominant - 1] = dominant
 
     def predict(self, X):
         predictions = [self.full_class for i in range(len(X))]
@@ -140,31 +163,109 @@ class Dominating_class():
         labels = self.transform_labels(labels)
         return cross_entropy(labels, predictions)
 
-
-def main():
-    full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
-    text = full_data['selftext']
-    labels = full_data[annotators_names]
+def preprocess(data):
+    data = data.replace('None', np.NAN)
+    text = data['text'].to_numpy()
+    annotators_names = list(data.columns)
+    for col in ['example_id', 'batch', 'text']:
+        annotators_names.remove(col)
+    labels = data[annotators_names]
+    labels = labels.dropna(thresh=2)
+    text = text[labels.index]
+    return text,labels.to_numpy().astype(float)
+def main_for_trails(trial):
+    #full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
+    full_data = pd.read_csv('data/full_data.csv')
+    text,labels = preprocess(full_data)
     classes = 5
-    test_size = 0.25
     random_state = 42
-    iterations = 5000
+    iterations = 2000
+    lr = trial.suggest_float('lr',1e-5,1e-2,log=True)
+    print_each_x_iterations = -1
+    regularization = trial.suggest_float('regularization',0.1,5)
+    thres = 1e-3
+    folds = 5
+    splitter = KFold(n_splits=folds,shuffle=True,random_state=random_state)
+    basic_model_1_results = []
+    basic_model_2_results = []
+    basic_model_3_results = []
+    for train_indexes,test_indexes in splitter.split(text):
+        X_train = text[train_indexes]
+        X_test = text[test_indexes]
+        y_train = labels[train_indexes]
+        y_test = labels[test_indexes]
+        basic_model = Dominating_class(classes=classes)
+        basic_model.fit(X_train, y_train)
+        predictions = basic_model.predict(X_test)
+        basic_model_1_results.append(basic_model.calculate_cross_entropy(y_test, predictions))
+        basic_model_2 = Train_distribution(classes)
+        basic_model_2.fit(X_train,y_train)
+        predictions = basic_model_2.predict(X_test)
+        basic_model_2_results.append(basic_model_2.calculate_cross_entropy(y_test,predictions))
+        basic_model_3 = Softlabel_crossentropy(classes=classes, iterations=iterations, learning_rate=lr,
+                                               regularization=regularization, thres=thres,
+                                               print_each_x_iterations=print_each_x_iterations)
+        basic_model_3.fit(X_train, y_train)
+        y_pred = basic_model_3.predict(X_test)
+        basic_model_3_results.append(basic_model_3.calculate_cross_entropy(y_test, y_pred))
+    print(np.mean(basic_model_1_results))
+    print(np.mean(basic_model_2_results))
+    print(np.mean(basic_model_3_results))
+    return np.mean(basic_model_3_results)
+def main():
+    #full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
+    full_data = pd.read_csv('data/full_data.csv')
+    text,labels = preprocess(full_data)
+    classes = 5
+    random_state = 42
+    iterations = 2000
     lr = 5e-4
     print_each_x_iterations = -1
     regularization = 1
     thres = 1e-3
-    X_train, X_test, y_train, y_test = train_test_split(text, labels, test_size=test_size, random_state=random_state)
-    basic_model = Dominating_class(classes=classes)
-    basic_model.fit(X_train, y_train)
-    predictions = basic_model.predict(X_test)
-    print(basic_model.calculate_cross_entropy(y_test, predictions))
-    basic_model_2 = Softlabel_crossentropy(classes=classes, iterations=iterations, learning_rate=lr,
-                                           regularization=regularization, thres=thres,
-                                           print_each_x_iterations=print_each_x_iterations)
-    basic_model_2.fit(X_train, y_train)
-    y_pred = basic_model_2.predict(X_test)
-    print(basic_model_2.calculate_cross_entropy(y_test, y_pred))
-
+    folds = 5
+    splitter = KFold(n_splits=folds,shuffle=True,random_state=random_state)
+    basic_model_1_results_train = []
+    basic_model_1_results_test = []
+    basic_model_2_results_train = []
+    basic_model_2_results_test = []
+    basic_model_3_results_train = []
+    basic_model_3_results_test = []
+    for train_indexes,test_indexes in splitter.split(text):
+        X_train = text[train_indexes]
+        X_test = text[test_indexes]
+        y_train = labels[train_indexes]
+        y_test = labels[test_indexes]
+        basic_model = Dominating_class(classes=classes)
+        basic_model.fit(X_train, y_train)
+        predictions = basic_model.predict(X_train)
+        basic_model_1_results_train.append(basic_model.calculate_cross_entropy(y_train, predictions))
+        predictions = basic_model.predict(X_test)
+        basic_model_1_results_test.append(basic_model.calculate_cross_entropy(y_test, predictions))
+        basic_model_2 = Train_distribution(classes)
+        basic_model_2.fit(X_train,y_train)
+        predictions = basic_model_2.predict(X_train)
+        basic_model_2_results_train.append(basic_model_2.calculate_cross_entropy(y_train, predictions))
+        predictions = basic_model_2.predict(X_test)
+        basic_model_2_results_test.append(basic_model_2.calculate_cross_entropy(y_test,predictions))
+        basic_model_3 = Softlabel_crossentropy(classes=classes, iterations=iterations, learning_rate=lr,
+                                               regularization=regularization, thres=thres,
+                                               print_each_x_iterations=print_each_x_iterations)
+        basic_model_3.fit(X_train, y_train)
+        predictions = basic_model_3.predict(X_train)
+        basic_model_3_results_train.append(basic_model_3.calculate_cross_entropy(y_train,predictions))
+        y_pred = basic_model_3.predict(X_test)
+        basic_model_3_results_test.append(basic_model_3.calculate_cross_entropy(y_test, y_pred))
+    print(np.mean(basic_model_1_results_train))
+    print(np.mean(basic_model_1_results_test))
+    print(np.mean(basic_model_2_results_train))
+    print(np.mean(basic_model_2_results_test))
+    print(np.mean(basic_model_3_results_train))
+    print(np.mean(basic_model_3_results_test))
+    #return np.mean(basic_model_3_results)
 
 if __name__ == '__main__':
     main()
+    # study = optuna.create_study(direction='minimize')
+    # study.optimize(main_for_trails, n_trials=100)
+    #main()

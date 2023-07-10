@@ -81,10 +81,15 @@ class Feliss_kappa():
 
 
 def get_stats(path, classes):
-    onlyfiles = [join(path, f) for f in listdir(path) if (isfile(join(path, f)) and 'xlsx' in f)]
-    files_series = [pd.read_excel(f, index_col=0).reset_index(drop=True) for f in onlyfiles]
-    full_data = merge_annotation_results(files_series)
+    # onlyfiles = [join(path, f) for f in listdir(path) if (isfile(join(path, f)) and 'xlsx' in f)]
+    # files_series = [pd.read_excel(f, index_col=0).reset_index(drop=True) for f in onlyfiles]
+    # full_data = merge_annotation_results(files_series)
+    full_data = pd.read_csv(path)
+    annotators_names = list(full_data.columns)
+    for col in ['example_id', 'batch', 'text']:
+        annotators_names.remove(col)
     full_data = full_data.replace('None', np.NAN)
+    full_data = full_data[annotators_names]
     metric_bennet_s = Bennet_s(classes)
     metric_scott_pi = Scott_pi()
     metric_cohen_kappa = Cohen_kappa()
@@ -105,6 +110,8 @@ def get_stats(path, classes):
                 individual_results[(annotator_1, annotator_2)] = {}
             pair_data = full_data[[annotator_1, annotator_2]].set_axis([0, 1], axis=1, copy=False)
             pair_data = pair_data.dropna().astype('int')
+            if len(pair_data) == 0:
+                continue
             bennet_s = round(metric_bennet_s.calculate(pair_data), 4)
             scott_pi = round(metric_scott_pi.calculate(pair_data), 4)
             cohen_kappa = round(metric_cohen_kappa.calculate(pair_data), 4)
@@ -147,7 +154,8 @@ def get_stats(path, classes):
 
 
 def main():
-    path = 'data/labeled/full_annotation_team_1'
+    #path = 'data/labeled/full_annotation_team_1'
+    path = 'data/full_data.csv'
     classes = 5
     results_dict, individual_results = get_stats(path, classes)
     for key, value in individual_results.items():
