@@ -7,6 +7,12 @@ import numpy as np
 import argparse
 import torch
 from utils import preprocess, distribution_per_row
+from sklearn.model_selection import train_test_split
+from transformers import EvalPrediction
+import optuna
+import os
+
+
 
 
 class LongformerForMultiLabelSequenceClassification(LongformerPreTrainedModel):
@@ -54,71 +60,180 @@ class LongformerForMultiLabelSequenceClassification(LongformerPreTrainedModel):
 
 
 class CustomDataset(Dataset):
-    def __init__(self, texts, distributions, tokenizer):
+    def __init__(self, texts, distributions):
+        """
+        :param texts: list of strings
+        :param distributions: list of numpy arrays size 5
+        """
         self.texts = texts
         self.distributions = distributions
-        self.tokenizer = tokenizer
 
     def __len__(self):
         return len(self.texts)
 
     def __getitem__(self, idx):
-        # tokenized_text = self.tokenizer(self.texts[idx],return_tensors = 'pt')
         label = torch.Tensor(self.distributions[idx])
         return self.texts[idx], label
 
 
 class Datacollector():
+    """
+    Custom data collector for datasets in trainer
+    """
+
     def __init__(self, tokenizer):
         self.tokenizer = tokenizer
 
     def __call__(self, batch):
         encoded_text = self.tokenizer.batch_encode_plus([x[0] for x in batch], padding=True, return_tensors='pt')
         labels = torch.stack([x[1] for x in batch])
-        return encoded_text, labels
+        return {'input_ids': encoded_text.input_ids, "attention_mask": encoded_text.attention_mask, "labels": labels}
 
 
 def parseargs():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-lr', default=1e-3, type=float)
-    parser.add_argument('-batch_size', default=4, type=int)
-    parser.add_argument('-classes',default=5,type=int)
-    return parser.parse_args()
+    parser.add_argument('-lr', default=5e-4, type=float)
+    parser.add_argument('-train_batch_size', default=4, type=int)
+    parser.add_argument('-eval_batch_size', default=-1, type=int)
+    parser.add_argument('-classes', default=5, type=int)
+    parser.add_argument('-train_percentage', type=float, default=0.6)
+    parser.add_argument('-val_percentage', type=float, default=0.2)
+    parser.add_argument('-evaluation_strategy', type=str, default='epoch')
+    parser.add_argument('-eval_each_x_steps', type=int, default=1)
+    parser.add_argument('-epochs', default=1, type=int)
+    args = parser.parse_args()
+    test_percentage = 1 - args.train_percentage - args.val_percentage
+    assert test_percentage > 0
+    args.test_percentage = test_percentage
+    return args
 
 
-def softcrossentropyloss(pred, real):
-    temp = torch.log(pred) * real
-    x = torch.sum(temp)
-    return x
+def SoftCrossEntropyLoss(pred, real):
+    """
+    :param pred: tensor of predictions
+    :param real: tensor of real labels
+    :return: loss
+    """
+    entry_wise_entropy = torch.log(pred) * real
+    loss_per_sample = -torch.sum(entry_wise_entropy, dim=1)
+    return torch.mean(loss_per_sample, dim=0)
 
+def SoftCrossEntropy(pred, real):
+    """
+    :param pred: numpy array of predictions
+    :param real: numpy array of labels
+    :return: cross entropy
+    """
+    entry_wise_entropy = np.log(pred) * real
+    loss_per_sample = -np.sum(entry_wise_entropy, axis=1)
+    return np.mean(loss_per_sample)
 
 class Custom_Trainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
-        model_output = model(**inputs[0])
-        labels = inputs[1]
-        loss = softcrossentropyloss(model_output, labels)
-        return loss
+        model_output = model(input_ids=inputs["input_ids"], attention_mask=inputs['attention_mask'])
+        labels = inputs["labels"]
+        loss = SoftCrossEntropyLoss(model_output, labels)
+        return (loss, model_output) if return_outputs else loss
 
 
-def train():
-    args = parseargs()
-    batch_size = args.batch_size
-    lr = args.lr
-    classes = args.classes
-    args = TrainingArguments(output_dir="data", per_device_train_batch_size=batch_size)
-    data = pd.read_csv('data/full_data.csv')
+def process_data(path, args):
+    data = pd.read_csv(path)
     data = preprocess(data)
     texts = data['text'].tolist()
     ann_cols = [col for col in data.columns if col not in ['text', 'example_id']]
     distributions = data[ann_cols].apply(lambda x: distribution_per_row(x), axis=1).tolist()
+    #TODO: set train validation and test splits across all models
+    train_val_texts, test_texts, train_val_distributions, test_distributions = train_test_split(texts, distributions,
+                                                                                                test_size=args.test_percentage)
+    train_texts, val_texts, train_distibutions, val_distributions = train_test_split(train_val_texts,
+                                                                                     train_val_distributions,
+                                                                                     test_size=args.val_percentage / (
+                                                                                             args.train_percentage + args.val_percentage))
+    train_dataset = CustomDataset(train_texts, train_distibutions)
+    val_dataset = CustomDataset(val_texts, val_distributions)
+    test_dataset = CustomDataset(test_texts, test_distributions)
+    if args.eval_batch_size == -1:
+        args.eval_batch_size = len(val_dataset)
+    return train_dataset, val_dataset, test_dataset
+
+
+def train():
+    args = parseargs()
+    os.environ["WANDB_DISABLED"] = "true"
+    classes = args.classes
+    path = 'data/full_data.csv'
+    #TODO: check if we can play with attention window
     model = LongformerForMultiLabelSequenceClassification.from_pretrained('allenai/longformer-base-4096',
                                                                           attention_window=512,
                                                                           num_labels=classes)
     tokenizer = AutoTokenizer.from_pretrained('allenai/longformer-base-4096')
-    dataset = CustomDataset(texts, distributions, tokenizer)
-    trainer = Custom_Trainer(model=model, args=args, data_collator=Datacollector(tokenizer), train_dataset=dataset,
-                             eval_dataset=dataset, tokenizer=tokenizer)
+    train_dataset, val_dataset, test_dataset = process_data(path, args)
+    train_batch_size = args.train_batch_size
+    eval_batch_size = args.eval_batch_size
+    lr = args.lr
+    evaluation_strategy = args.evaluation_strategy
+    epochs = args.epochs
+    #TODO: do checkpointing
+    if evaluation_strategy == 'steps':
+        eval_steps = args.eval_each_x_steps
+        training_args = TrainingArguments(output_dir="data", per_device_train_batch_size=train_batch_size,
+                                          per_device_eval_batch_size=eval_batch_size, learning_rate=lr,
+                                          evaluation_strategy=evaluation_strategy, eval_steps=eval_steps, do_eval=True,
+                                          do_train=True, num_train_epochs=epochs)
+    else:
+        training_args = TrainingArguments(output_dir="data", per_device_train_batch_size=train_batch_size,
+                                          per_device_eval_batch_size=eval_batch_size, learning_rate=lr,
+                                          evaluation_strategy=evaluation_strategy, do_eval=True, do_train=True,
+                                          num_train_epochs=epochs)
+    trainer = Custom_Trainer(model=model, args=training_args, data_collator=Datacollector(tokenizer),
+                             train_dataset=train_dataset,
+                             eval_dataset=val_dataset)
     trainer.train()
 
 
-train()
+def optuna_train(trial):
+    args = parseargs()
+    os.environ["WANDB_DISABLED"] = "true"
+    classes = args.classes
+    path = 'data/full_data.csv'
+    model = LongformerForMultiLabelSequenceClassification.from_pretrained('allenai/longformer-base-4096',
+                                                                          attention_window=512,
+                                                                          num_labels=classes)
+    tokenizer = AutoTokenizer.from_pretrained('allenai/longformer-base-4096')
+    train_dataset, val_dataset, test_dataset = process_data(path, args)
+    train_batch_size = args.train_batch_size
+    eval_batch_size = args.eval_batch_size
+    lr = trial.suggest_float("lr", 5e-5, 5e-3, log=True)
+    evaluation_strategy = args.evaluation_strategy
+    epochs = trial.suggest_int('epochs', 3, 30)
+    if evaluation_strategy == 'steps':
+        eval_steps = args.eval_each_x_steps
+        training_args = TrainingArguments(output_dir="data", per_device_train_batch_size=train_batch_size,
+                                          per_device_eval_batch_size=eval_batch_size, learning_rate=lr,
+                                          evaluation_strategy=evaluation_strategy, eval_steps=eval_steps, do_eval=True,
+                                          do_train=True, num_train_epochs=epochs)
+    else:
+        training_args = TrainingArguments(output_dir="data", per_device_train_batch_size=train_batch_size,
+                                          per_device_eval_batch_size=eval_batch_size, learning_rate=lr,
+                                          evaluation_strategy=evaluation_strategy, do_eval=True, do_train=True,
+                                          num_train_epochs=epochs)
+    trainer = Custom_Trainer(model=model, args=training_args, data_collator=Datacollector(tokenizer),
+                             train_dataset=train_dataset,
+                             eval_dataset=val_dataset)
+    trainer.train()
+    predictions = trainer.predict(val_dataset)
+
+    return predictions.metrics['test_loss']
+
+
+# train()
+study = optuna.create_study(direction='minimize')
+study.optimize(optuna_train, n_trials=100)
+print("Best trial:", study.best_trial.number)
+print("Best accuracy:", study.best_trial.value)
+print("Best hyperparameters:", study.best_params)
+with open('Best_hyperparameters.txt', 'w') as f:
+    f.write('loss')
+    f.write(str(study.best_trial.value))
+    f.write("parameters")
+    f.write(str(study.best_params))
