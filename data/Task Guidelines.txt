@@ -1,0 +1,18 @@
+Task Guidelines:
+Generate a normalized distribution representing how much  the person who wrote the post is described by the task classes. The output format should be just: {1:?% , 2:?%, 3:?%, 4:?%,5:?%}.
+Do not write anything beside the classes distribution
+
+
+
+Task Classes:
+Guidelines for Behavior Levels:
+
+1 - Morally Good: Considerate, empathetic, and respectful of others. Mindful of impact on others.
+
+2 - Mildly Selfish: Mostly considerate, occasional insensitivity. Open to feedback and improvement.
+
+3 - Occasional Rudeness: Sometimes inconsiderate, displays unkindness. Disregards others' feelings at times.
+
+4 - Frequent Inappropriateness: Often insensitive, self-centered. Prioritizes own needs, lacks consideration.
+
+5 - Deliberately Cruel: Empathy-free, self-important. Displays intentional malice and cruelty.

@@ -2,7 +2,7 @@ import string
 
 import numpy as np
 import pandas as pd
-from utils import merge_annotation_results, check_correlation,create_data
+from utils import merge_annotation_results, check_correlation,merge_with_metadata
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
 import matplotlib.pyplot as plt
@@ -89,17 +89,18 @@ def diff_each_pair(row):
     return np.mean(diff)
 
 def main():
-    full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
+    full_data, annotators_names = merge_with_metadata('data/full_data_old.csv', "data/raw/raw_output_updated.pickle")
+    full_data[annotators_names] = full_data[annotators_names].astype(float)
     full_data['mean_score'] = full_data[annotators_names].mean(skipna=True, axis=1)
-    full_data['text_length'] = full_data['selftext'].apply(lambda x: len(x))
+    full_data['text_length'] = full_data['text'].apply(lambda x: len(x))
     full_data['mean_disagreement'] = full_data[annotators_names].apply(diff_each_pair,axis=1)
     check_correlation_each_pair(
         full_data[['mean_score', 'text_length', 'num_comments', 'upvote_ratio', 'ups', 'total_votes', 'downs','mean_disagreement']])
-    # print(f"Expected value {np.mean(full_data['mean_score'])}")
-    # print(f"Variance of mean score {np.var(full_data['mean_score'])}")
-    # mean_score_distribution(full_data)
-    # single_annotation_histogram(full_data)
-    # pair_difference_histogram(full_data,annotators_names)
+    print(f"Expected value {np.mean(full_data['mean_score'])}")
+    print(f"Variance of mean score {np.var(full_data['mean_score'])}")
+    mean_score_distribution(full_data)
+    single_annotation_histogram(full_data,annotators_names)
+    pair_difference_histogram(full_data,annotators_names)
 
 
 if __name__ == "__main__":

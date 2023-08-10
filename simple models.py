@@ -2,7 +2,7 @@ import math
 
 import pandas as pd
 
-from utils import create_data, isNaN
+from utils import merge_with_metadata, isNaN
 
 from nltk.stem import WordNetLemmatizer
 from nltk.corpus import stopwords
@@ -14,6 +14,7 @@ from sklearn.feature_extraction.text import CountVectorizer,TfidfVectorizer
 import numpy as np
 from sklearn.model_selection import train_test_split,KFold
 import optuna
+from utils import preprocess
 
 class LemmaTokenizer(object):
     def __init__(self):
@@ -163,20 +164,17 @@ class Dominating_class():
         labels = self.transform_labels(labels)
         return cross_entropy(labels, predictions)
 
-def preprocess(data):
-    data = data.replace('None', np.NAN)
+def preprocess_for_training(data):
     text = data['text'].to_numpy()
     annotators_names = list(data.columns)
-    for col in ['example_id', 'batch', 'text']:
+    for col in ['example_id', 'text']:
         annotators_names.remove(col)
     labels = data[annotators_names]
-    labels = labels.dropna(thresh=2)
-    text = text[labels.index]
     return text,labels.to_numpy().astype(float)
 def main_for_trails(trial):
-    #full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
-    full_data = pd.read_csv('data/full_data.csv')
-    text,labels = preprocess(full_data)
+    full_data = pd.read_csv('data/full_data_old.csv')
+    full_data = preprocess(full_data,dropna_thres=4)
+    text,labels = preprocess_for_training(full_data)
     classes = 5
     random_state = 42
     iterations = 2000
@@ -213,9 +211,9 @@ def main_for_trails(trial):
     print(np.mean(basic_model_3_results))
     return np.mean(basic_model_3_results)
 def main():
-    #full_data, annotators_names = create_data('data/labeled/full_annotation_team_1')
-    full_data = pd.read_csv('data/full_data.csv')
-    text,labels = preprocess(full_data)
+    full_data = pd.read_csv('data/full_data_old.csv')
+    full_data = preprocess(full_data, dropna_thres=4)
+    text,labels = preprocess_for_training(full_data)
     classes = 5
     random_state = 42
     iterations = 2000
@@ -262,7 +260,6 @@ def main():
     print(np.mean(basic_model_2_results_test))
     print(np.mean(basic_model_3_results_train))
     print(np.mean(basic_model_3_results_test))
-    #return np.mean(basic_model_3_results)
 
 if __name__ == '__main__':
     main()

@@ -161,7 +161,7 @@ def train():
     args = parseargs()
     os.environ["WANDB_DISABLED"] = "true"
     classes = args.classes
-    path = 'data/full_data.csv'
+    path = 'data/full_data_old.csv'
     #TODO: check if we can play with attention window
     model = LongformerForMultiLabelSequenceClassification.from_pretrained('allenai/longformer-base-4096',
                                                                           attention_window=512,
@@ -195,7 +195,7 @@ def optuna_train(trial):
     args = parseargs()
     os.environ["WANDB_DISABLED"] = "true"
     classes = args.classes
-    path = 'data/full_data.csv'
+    path = 'data/full_data_old.csv'
     model = LongformerForMultiLabelSequenceClassification.from_pretrained('allenai/longformer-base-4096',
                                                                           attention_window=512,
                                                                           num_labels=classes)

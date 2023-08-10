@@ -4,7 +4,7 @@ from os import listdir
 from os.path import isfile, join
 import numpy as np
 from scipy.stats import pearsonr, kendalltau
-from utils import merge_annotation_results
+from utils import preprocess
 
 
 class IAA_metric():
@@ -81,14 +81,11 @@ class Feliss_kappa():
 
 
 def get_stats(path, classes):
-    # onlyfiles = [join(path, f) for f in listdir(path) if (isfile(join(path, f)) and 'xlsx' in f)]
-    # files_series = [pd.read_excel(f, index_col=0).reset_index(drop=True) for f in onlyfiles]
-    # full_data = merge_annotation_results(files_series)
     full_data = pd.read_csv(path)
+    full_data = preprocess(full_data,dropna_thres=4)
     annotators_names = list(full_data.columns)
-    for col in ['example_id', 'batch', 'text']:
+    for col in ['example_id', 'text']:
         annotators_names.remove(col)
-    full_data = full_data.replace('None', np.NAN)
     full_data = full_data[annotators_names]
     metric_bennet_s = Bennet_s(classes)
     metric_scott_pi = Scott_pi()
@@ -154,8 +151,7 @@ def get_stats(path, classes):
 
 
 def main():
-    #path = 'data/labeled/full_annotation_team_1'
-    path = 'data/full_data.csv'
+    path = 'data/full_data_old.csv'
     classes = 5
     results_dict, individual_results = get_stats(path, classes)
     for key, value in individual_results.items():
