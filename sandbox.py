@@ -1,24 +1,44 @@
+import numpy as np
 import pandas as pd
 import ast
-from utils import distribution_per_row
+from utils import distribution_per_row_series
+import json
+import string
+from utils import cross_entropy
 
-data = pd.read_csv('data/prompted_data.csv',index_col=0)
-y = pd.read_csv('data/prompted.csv',index_col=0)
-gpt4_predictions = data['gpt-4'].tolist()
-chatgpt_predictions = data['gpt-3.5-turbo'].tolist()
-def process(data):
-    new_data = []
-    import json
-    for x in data:
-        x = ast.literal_eval(x)
-        for y in x:
-            y = json.loads(y)
-            y = ast.literal_eval(y.replace('%',''))
-            print(y)
-        #new_x = ast.literal_eval(x[1:])
-    c = 1
 
-process(gpt4_predictions)
+def remove_punctuation(text):
+    for punctuation in ['%', '.']:
+        text = text.replace(punctuation, '')
+    return text
+
+
+def check_if_valid(y):
+    sum_ = 0
+    for k, v in y.items():
+        sum_ += v
+    if sum_ != 100:
+        return False
+    return True
+
+
+def process_row(original_row_data):
+    original_row_data = ast.literal_eval(original_row_data)
+    row_data = []
+    for sample in original_row_data:
+        try:
+            y = ast.literal_eval(remove_punctuation(sample))
+            if not check_if_valid(y):
+                continue
+            row_data.append(y)
+        except:
+            pass
+    averaged_row_data = np.zeros(5)
+    for sample_dict in row_data:
+        for k, v in sample_dict.items():
+            k = int(k)
+            averaged_row_data[k - 1] += v / 100 / len(row_data)
+    return averaged_row_data
 
 
 

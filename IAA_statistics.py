@@ -81,7 +81,7 @@ class Feliss_kappa():
 
 
 def get_stats(path, classes):
-    full_data = pd.read_csv(path)
+    full_data = pd.read_csv(path,index_col=0)
     full_data = preprocess(full_data,dropna_thres=4)
     annotators_names = list(full_data.columns)
     for col in ['example_id', 'text']:

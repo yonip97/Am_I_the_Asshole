@@ -6,13 +6,12 @@ import pandas as pd
 import numpy as np
 import argparse
 import torch
-from utils import preprocess, distribution_per_row
+from utils import preprocess, distribution_per_row_series
 from sklearn.model_selection import train_test_split
 from transformers import EvalPrediction
 import optuna
 import os
-
-
+from utils import split_to_train_val_test,preprocess_for_training,distribution_per_row_numpy
 
 
 class LongformerForMultiLabelSequenceClassification(LongformerPreTrainedModel):
@@ -66,6 +65,7 @@ class CustomDataset(Dataset):
         :param distributions: list of numpy arrays size 5
         """
         self.texts = texts
+        distributions = [distribution_per_row_numpy(x,5) for x in distributions]
         self.distributions = distributions
 
     def __len__(self):
@@ -101,6 +101,7 @@ def parseargs():
     parser.add_argument('-evaluation_strategy', type=str, default='epoch')
     parser.add_argument('-eval_each_x_steps', type=int, default=1)
     parser.add_argument('-epochs', default=1, type=int)
+    parser.add_argument('-seed', default=42, type=int)
     args = parser.parse_args()
     test_percentage = 1 - args.train_percentage - args.val_percentage
     assert test_percentage > 0
@@ -118,6 +119,7 @@ def SoftCrossEntropyLoss(pred, real):
     loss_per_sample = -torch.sum(entry_wise_entropy, dim=1)
     return torch.mean(loss_per_sample, dim=0)
 
+
 def SoftCrossEntropy(pred, real):
     """
     :param pred: numpy array of predictions
@@ -128,6 +130,7 @@ def SoftCrossEntropy(pred, real):
     loss_per_sample = -np.sum(entry_wise_entropy, axis=1)
     return np.mean(loss_per_sample)
 
+
 class Custom_Trainer(Trainer):
     def compute_loss(self, model, inputs, return_outputs=False):
         model_output = model(input_ids=inputs["input_ids"], attention_mask=inputs['attention_mask'])
@@ -137,12 +140,12 @@ class Custom_Trainer(Trainer):
 
 
 def process_data(path, args):
-    data = pd.read_csv(path)
+    data = pd.read_csv(path, index_col=0)
     data = preprocess(data)
     texts = data['text'].tolist()
     ann_cols = [col for col in data.columns if col not in ['text', 'example_id']]
-    distributions = data[ann_cols].apply(lambda x: distribution_per_row(x), axis=1).tolist()
-    #TODO: set train validation and test splits across all models
+    distributions = data[ann_cols].apply(lambda x: distribution_per_row_numpy(x), axis=1).tolist()
+    # TODO: set train validation and test splits across all models
     train_val_texts, test_texts, train_val_distributions, test_distributions = train_test_split(texts, distributions,
                                                                                                 test_size=args.test_percentage)
     train_texts, val_texts, train_distibutions, val_distributions = train_test_split(train_val_texts,
@@ -161,19 +164,29 @@ def train():
     args = parseargs()
     os.environ["WANDB_DISABLED"] = "true"
     classes = args.classes
-    path = 'data/full_data_old.csv'
-    #TODO: check if we can play with attention window
+    path = 'data/full_data.csv'
+    # TODO: check if we can play with attention window
     model = LongformerForMultiLabelSequenceClassification.from_pretrained('allenai/longformer-base-4096',
                                                                           attention_window=512,
                                                                           num_labels=classes)
     tokenizer = AutoTokenizer.from_pretrained('allenai/longformer-base-4096')
-    train_dataset, val_dataset, test_dataset = process_data(path, args)
+    data = pd.read_csv(path, index_col=0)
+    train_data,val_data,test_data = split_to_train_val_test(seed=args.seed, data=data, train_percentage=args.train_percentage,
+                            val_percentage=args.val_percentage)
+    train_text, train_labels = preprocess_for_training(train_data)
+    val_text, val_labels = preprocess_for_training(val_data)
+    test_text, test_labels = preprocess_for_training(test_data)
+    train_dataset = CustomDataset(train_text, train_labels)
+    val_dataset = CustomDataset(val_text, val_labels)
+    test_dataset = CustomDataset(test_text, test_labels)
+    if args.eval_batch_size == -1:
+        args.eval_batch_size = len(val_dataset)
     train_batch_size = args.train_batch_size
     eval_batch_size = args.eval_batch_size
     lr = args.lr
     evaluation_strategy = args.evaluation_strategy
     epochs = args.epochs
-    #TODO: do checkpointing
+    # TODO: do checkpointing
     if evaluation_strategy == 'steps':
         eval_steps = args.eval_each_x_steps
         training_args = TrainingArguments(output_dir="data", per_device_train_batch_size=train_batch_size,
@@ -189,13 +202,14 @@ def train():
                              train_dataset=train_dataset,
                              eval_dataset=val_dataset)
     trainer.train()
-
+    predictions = trainer.predict(test_dataset)
+    return predictions
 
 def optuna_train(trial):
     args = parseargs()
     os.environ["WANDB_DISABLED"] = "true"
     classes = args.classes
-    path = 'data/full_data_old.csv'
+    path = 'data/full_data.csv'
     model = LongformerForMultiLabelSequenceClassification.from_pretrained('allenai/longformer-base-4096',
                                                                           attention_window=512,
                                                                           num_labels=classes)
@@ -226,7 +240,7 @@ def optuna_train(trial):
     return predictions.metrics['test_loss']
 
 
-# train()
+train()
 study = optuna.create_study(direction='minimize')
 study.optimize(optuna_train, n_trials=100)
 print("Best trial:", study.best_trial.number)
