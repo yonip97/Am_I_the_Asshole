@@ -10,11 +10,12 @@ import string
 from tqdm import tqdm
 from nltk import word_tokenize
 from nltk.stem import WordNetLemmatizer
-from sklearn.feature_extraction.text import CountVectorizer,TfidfVectorizer
+from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 import numpy as np
-from sklearn.model_selection import train_test_split,KFold
+from sklearn.model_selection import train_test_split, KFold
 import optuna
 from utils import preprocess
+
 
 class LemmaTokenizer(object):
     def __init__(self):
@@ -164,30 +165,33 @@ class Dominating_class():
         labels = self.transform_labels(labels)
         return cross_entropy(labels, predictions)
 
+
 def preprocess_for_training(data):
     text = data['text'].to_numpy()
     annotators_names = list(data.columns)
     for col in ['example_id', 'text']:
         annotators_names.remove(col)
     labels = data[annotators_names]
-    return text,labels.to_numpy().astype(float)
+    return text, labels.to_numpy().astype(float)
+
+
 def main_for_trails(trial):
     full_data = pd.read_csv('data/full_data_old.csv')
-    full_data = preprocess(full_data,dropna_thres=4)
-    text,labels = preprocess_for_training(full_data)
+    full_data = preprocess(full_data, dropna_thres=4)
+    text, labels = preprocess_for_training(full_data)
     classes = 5
     random_state = 42
     iterations = 2000
-    lr = trial.suggest_float('lr',1e-5,1e-2,log=True)
+    lr = trial.suggest_float('lr', 1e-5, 1e-2, log=True)
     print_each_x_iterations = -1
-    regularization = trial.suggest_float('regularization',0.1,5)
+    regularization = trial.suggest_float('regularization', 0.1, 5)
     thres = 1e-3
     folds = 5
-    splitter = KFold(n_splits=folds,shuffle=True,random_state=random_state)
+    splitter = KFold(n_splits=folds, shuffle=True, random_state=random_state)
     basic_model_1_results = []
     basic_model_2_results = []
     basic_model_3_results = []
-    for train_indexes,test_indexes in splitter.split(text):
+    for train_indexes, test_indexes in splitter.split(text):
         X_train = text[train_indexes]
         X_test = text[test_indexes]
         y_train = labels[train_indexes]
@@ -197,9 +201,9 @@ def main_for_trails(trial):
         predictions = basic_model.predict(X_test)
         basic_model_1_results.append(basic_model.calculate_cross_entropy(y_test, predictions))
         basic_model_2 = Train_distribution(classes)
-        basic_model_2.fit(X_train,y_train)
+        basic_model_2.fit(X_train, y_train)
         predictions = basic_model_2.predict(X_test)
-        basic_model_2_results.append(basic_model_2.calculate_cross_entropy(y_test,predictions))
+        basic_model_2_results.append(basic_model_2.calculate_cross_entropy(y_test, predictions))
         basic_model_3 = Softlabel_crossentropy(classes=classes, iterations=iterations, learning_rate=lr,
                                                regularization=regularization, thres=thres,
                                                print_each_x_iterations=print_each_x_iterations)
@@ -210,10 +214,12 @@ def main_for_trails(trial):
     print(np.mean(basic_model_2_results))
     print(np.mean(basic_model_3_results))
     return np.mean(basic_model_3_results)
+
+
 def main():
-    full_data = pd.read_csv('data/full_data_old.csv')
+    full_data = pd.read_csv('data/full_data.csv')
     full_data = preprocess(full_data, dropna_thres=4)
-    text,labels = preprocess_for_training(full_data)
+    text, labels = preprocess_for_training(full_data)
     classes = 5
     random_state = 42
     iterations = 2000
@@ -222,14 +228,14 @@ def main():
     regularization = 1
     thres = 1e-3
     folds = 5
-    splitter = KFold(n_splits=folds,shuffle=True,random_state=random_state)
+    splitter = KFold(n_splits=folds, shuffle=True, random_state=random_state)
     basic_model_1_results_train = []
     basic_model_1_results_test = []
     basic_model_2_results_train = []
     basic_model_2_results_test = []
     basic_model_3_results_train = []
     basic_model_3_results_test = []
-    for train_indexes,test_indexes in splitter.split(text):
+    for train_indexes, test_indexes in splitter.split(text):
         X_train = text[train_indexes]
         X_test = text[test_indexes]
         y_train = labels[train_indexes]
@@ -241,17 +247,17 @@ def main():
         predictions = basic_model.predict(X_test)
         basic_model_1_results_test.append(basic_model.calculate_cross_entropy(y_test, predictions))
         basic_model_2 = Train_distribution(classes)
-        basic_model_2.fit(X_train,y_train)
+        basic_model_2.fit(X_train, y_train)
         predictions = basic_model_2.predict(X_train)
         basic_model_2_results_train.append(basic_model_2.calculate_cross_entropy(y_train, predictions))
         predictions = basic_model_2.predict(X_test)
-        basic_model_2_results_test.append(basic_model_2.calculate_cross_entropy(y_test,predictions))
+        basic_model_2_results_test.append(basic_model_2.calculate_cross_entropy(y_test, predictions))
         basic_model_3 = Softlabel_crossentropy(classes=classes, iterations=iterations, learning_rate=lr,
                                                regularization=regularization, thres=thres,
                                                print_each_x_iterations=print_each_x_iterations)
         basic_model_3.fit(X_train, y_train)
         predictions = basic_model_3.predict(X_train)
-        basic_model_3_results_train.append(basic_model_3.calculate_cross_entropy(y_train,predictions))
+        basic_model_3_results_train.append(basic_model_3.calculate_cross_entropy(y_train, predictions))
         y_pred = basic_model_3.predict(X_test)
         basic_model_3_results_test.append(basic_model_3.calculate_cross_entropy(y_test, y_pred))
     print(np.mean(basic_model_1_results_train))
@@ -261,8 +267,9 @@ def main():
     print(np.mean(basic_model_3_results_train))
     print(np.mean(basic_model_3_results_test))
 
+
 if __name__ == '__main__':
     main()
     # study = optuna.create_study(direction='minimize')
     # study.optimize(main_for_trails, n_trials=100)
-    #main()
+    # main()
