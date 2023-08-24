@@ -1,7 +1,7 @@
 import ast
 import numpy as np
 import pandas as pd
-
+from utils import cross_entropy
 
 def remove_punctuation(text):
     for punctuation in ['%', '.']:
@@ -39,4 +39,10 @@ def process_row_llms(original_row_data):
 
 def main():
     data = pd.read_csv('data/prompted_data.csv',index_col=0)
+    data['chatgpt_labels'] = data['gpt-3.5-turbo'].apply(lambda x: process_row_llms(x))
+    data['gpt_4_labels'] = data['gpt-4'].apply(lambda x: process_row_llms(x))
+    data['labels'] = data['labels'].apply(lambda x: np.fromstring(x[1:-1], sep=' '))
+    print(f"The cross entropy of chatgpt labels is {cross_entropy(data['labels'], data['chatgpt_labels']):.3f}")
+    print(f"The cross entropy of gpt4 labels is {cross_entropy(data['labels'], data['gpt_4_labels']):.3f}")
+
 main()
